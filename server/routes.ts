@@ -2,12 +2,14 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import express from "express";
 import session from "express-session";
+import MemoryStore from "memorystore";
 import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
 import { WebSocket, WebSocketServer } from "ws";
 import { connectDB, UserModel, TripModel, TripMemberModel, TripStopModel, BudgetItemModel, BudgetHistoryModel, SpendingEntryModel, NotificationModel } from "./db";
 import { insertUserSchema, loginUserSchema, insertTripSchema, insertTripStopSchema, insertBudgetItemSchema, insertSpendingEntrySchema } from "@shared/schema";
 import OpenAI from "openai";
+import jsPDF from "jspdf";
 
 let openai: OpenAI | null = null;
 
@@ -75,36 +77,45 @@ async function assertOrganizer(tripId: string, userId: string, res: express.Resp
   return member;
 }
 
-function broadcastTripUpdate(tripId: string, message: any) {
-  const tripClients = clients.get(tripId);
-  if (tripClients) {
-    tripClients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(message));
-      }
-    });
-  }
-}
-
-async function notifyMembers(tripId: string, type: string, title: string, message: string) {
-  const members = await TripMemberModel.find({ tripId });
-  const notifications = members.map((member) =>
-    NotificationModel.create({
-      tripId,
-      userId: member.userId,
-      type,
-      title,
-      message,
-    })
-  );
-  await Promise.all(notifications);
-  broadcastTripUpdate(tripId, { type, title, message });
-}
-
 export async function registerRoutes(app: Express): Promise<Server> {
   await connectDB();
 
+  // WebSocket setup - moved to top so it's available for broadcastTripUpdate
+  const wss = new WebSocketServer({ noServer: true });
+  const clients: Map<string, Set<WebSocket>> = new Map();
+
+  function broadcastTripUpdate(tripId: string, message: any) {
+    const tripClients = clients.get(tripId);
+    if (tripClients) {
+      tripClients.forEach((client: WebSocket) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(message));
+        }
+      });
+    }
+  }
+
+  async function notifyMembers(tripId: string, type: string, title: string, message: string) {
+    const members = await TripMemberModel.find({ tripId });
+    const notifications = members.map((member) =>
+      NotificationModel.create({
+        tripId,
+        userId: member.userId,
+        type,
+        title,
+        message,
+      })
+    );
+    await Promise.all(notifications);
+    broadcastTripUpdate(tripId, { type, title, message });
+  }
+
+  const sessionStore = new (MemoryStore as any)({
+    checkPeriod: 86400000, // Prune expired entries every 24h
+  });
+
   app.use(session({
+    store: sessionStore,
     secret: process.env.SESSION_SECRET || 'bktravel-secret-key',
     resave: false,
     saveUninitialized: false,
@@ -112,14 +123,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       secure: false,
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000
-    }
+    },
+    name: 'bktravel.sid' // Custom session ID name to avoid conflicts
   }));
 
   app.post("/api/auth/register", async (req: AuthRequest, res) => {
     try {
       const data = insertUserSchema.parse(req.body);
       
-      const existing = await UserModel.findOne({ userId: data.userId });
+      // Use case-insensitive search to prevent duplicate userIds with different cases
+      const existing = await UserModel.findOne({ userId: { $regex: `^${data.userId}$`, $options: 'i' } });
       if (existing) {
         return res.status(400).json({ message: "User ID already exists" });
       }
@@ -142,7 +155,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const data = loginUserSchema.parse(req.body);
       
-      const user = await UserModel.findOne({ userId: data.userId });
+      // Use case-insensitive search for userId to prevent case sensitivity issues
+      const user = await UserModel.findOne({ userId: { $regex: `^${data.userId}$`, $options: 'i' } });
       if (!user) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
@@ -166,6 +180,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ message: "Logged out successfully" });
     });
+  });
+
+  // Get current authenticated user (no error if not authenticated)
+  app.get("/api/auth/me", async (req: AuthRequest, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.json({ user: null });
+      }
+      const user = await UserModel.findById(req.session.userId).select('-password');
+      if (!user) {
+        return res.json({ user: null });
+      }
+      res.json({ user: { id: user._id, username: user.username, userId: user.userId } });
+    } catch (error: any) {
+      res.json({ user: null });
+    }
   });
 
   app.get("/api/user/profile", authMiddleware, async (req: AuthRequest, res) => {
@@ -206,11 +236,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/trips", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const memberTrips = await TripMemberModel.find({ userId: req.session.userId });
+      // Use lean() for read-only queries to improve performance
+      const memberTrips = await TripMemberModel.find({ userId: req.session.userId }).lean();
       const tripIds = memberTrips.map(m => m.tripId);
       const trips = await TripModel.find({ _id: { $in: tripIds } })
         .populate('organizerId', 'username userId')
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .lean();
       res.json(trips);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -219,7 +251,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/trips/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const trip = await TripModel.findById(req.params.id).populate('organizerId', 'username userId');
+      const trip = await TripModel.findById(req.params.id).populate('organizerId', 'username userId').lean();
       if (!trip) {
         return res.status(404).json({ message: "Trip not found" });
       }
@@ -282,7 +314,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/trips/join", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const { joinCode } = req.body;
-      const trip = await TripModel.findOne({ joinCode });
+      // Use case-insensitive search for joinCode
+      const trip = await TripModel.findOne({ joinCode: { $regex: `^${joinCode}$`, $options: 'i' } });
       
       if (!trip) {
         return res.status(404).json({ message: "Invalid join code" });
@@ -306,7 +339,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/trips/:id/members", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const members = await TripMemberModel.find({ tripId: req.params.id }).populate('userId', 'username userId');
+      // Use lean() for better performance and populate only necessary fields
+      const members = await TripMemberModel.find({ tripId: req.params.id })
+        .select('_id tripId userId role creditAmount spentAmount balance joinedAt')
+        .populate('userId', 'username userId _id')
+        .lean();
       res.json(members);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -341,10 +378,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Only organizers can promote others to organizer" });
       }
 
-      targetMember.role = role;
-      await targetMember.save();
+      // Use findByIdAndUpdate to reduce queries from 3 to 1, then populate in a single operation
+      const updatedMember = await TripMemberModel.findByIdAndUpdate(
+        targetMember._id,
+        { role },
+        { new: true }
+      ).populate('userId', 'username userId');
+      
+      // Broadcast the update to all connected clients
+      broadcastTripUpdate(req.params.id, { 
+        type: 'member_role_updated', 
+        message: `Member role updated to ${role}`,
+        member: updatedMember
+      });
 
-      res.json(targetMember);
+      res.json(updatedMember);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/trips/:id/members/:memberId/balance", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const organizer = await assertOrganizer(req.params.id, req.session.userId!, res);
+      if (!organizer) {
+        return;
+      }
+
+      const targetMember = await TripMemberModel.findOne({ tripId: req.params.id, _id: req.params.memberId });
+      if (!targetMember) {
+        return res.status(404).json({ message: "Member not found" });
+      }
+
+      const { creditAmount, spentAmount } = req.body;
+      
+      // Validate input
+      if (typeof creditAmount !== 'number' || typeof spentAmount !== 'number') {
+        return res.status(400).json({ message: "Invalid credit or spent amount" });
+      }
+
+      if (creditAmount < 0 || spentAmount < 0) {
+        return res.status(400).json({ message: "Amounts cannot be negative" });
+      }
+
+      // Use findByIdAndUpdate to reduce queries from 3 to 1, then populate in a single operation
+      const updatedMember = await TripMemberModel.findByIdAndUpdate(
+        targetMember._id,
+        { 
+          creditAmount,
+          spentAmount,
+          balance: creditAmount - spentAmount
+        },
+        { new: true }
+      ).populate('userId', 'username userId') as any;
+      
+      // Broadcast the update to all connected clients
+      broadcastTripUpdate(req.params.id, { 
+        type: 'member_balance_updated', 
+        message: `${updatedMember?.userId?.username}'s balance updated`,
+        member: updatedMember
+      });
+
+      res.json(updatedMember);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
@@ -376,7 +471,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/trips/:id/stops", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const stops = await TripStopModel.find({ tripId: req.params.id });
+      // Sort at database level using custom sort logic with addFields
+      const typeOrder = { 'start': 0, 'stop': 1, 'destination': 2 };
+      const stops = await TripStopModel.find({ tripId: req.params.id })
+        .sort({ 
+          'type': 1,  // Database will sort by type alphabetically first
+          'orderIndex': 1 
+        })
+        .lean();
+      
+      // Client-side sort with type priority (minimal sorting, data already mostly sorted)
       const sorted = stops.sort((a: any, b: any) => {
         const typeRank = (type: string) => {
           if (type === 'start') return 0;
@@ -385,9 +489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return 3;
         };
         const rankDiff = typeRank(a.type) - typeRank(b.type);
-        if (rankDiff !== 0) {
-          return rankDiff;
-        }
+        if (rankDiff !== 0) return rankDiff;
         return (a.orderIndex ?? 0) - (b.orderIndex ?? 0);
       });
       res.json(sorted);
@@ -466,6 +568,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Not a member of this trip" });
       }
       const item = await BudgetItemModel.create({ ...data, tripId: trip._id });
+      
+      // Distribute equal share of the budget to all members
+      const members = await TripMemberModel.find({ tripId: trip._id });
+      const sharePerMember = Number(data.amount) / members.length;
+      
+      // Use bulk update instead of individual updates - much faster for large member counts
+      const updateMembersPromise = TripMemberModel.updateMany(
+        { tripId: trip._id },
+        {
+          $inc: { 
+            creditAmount: sharePerMember,
+            balance: sharePerMember
+          }
+        }
+      );
+      
       // Budget items are allocations within the total budget, don't modify total budget
       const historyPromise = BudgetHistoryModel.create({
         tripId: trip._id,
@@ -476,14 +594,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         category: item.category,
         description: item.description,
       });
-      const members = await TripMemberModel.find({ tripId: trip._id });
+      
       const notificationPromises = members.map((member) =>
         NotificationModel.create({
           tripId: trip._id,
           userId: member.userId,
           type: 'budget_alert',
           title: 'Budget updated',
-          message: `${item.category}: ${Number(item.amount).toFixed(2)} added`,
+          message: `${item.category}: ${Number(item.amount).toFixed(2)} added (₹${sharePerMember.toFixed(2)} for you)`,
         })
       );
       if (!members.some((member) => member.userId.toString() === trip.organizerId.toString())) {
@@ -497,8 +615,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })
         );
       }
+      
+      await Promise.all([updateMembersPromise, ...notificationPromises]);
       await historyPromise;
-      await Promise.all(notificationPromises);
+      broadcastTripUpdate(trip._id.toString(), { 
+        type: 'budget_updated', 
+        message: `Budget updated: ${item.category} (₹${item.amount})`
+      });
+      
       res.json(item);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -518,8 +642,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const [items, history] = await Promise.all([
-        BudgetItemModel.find({ tripId: req.params.id }),
-        BudgetHistoryModel.find({ tripId: req.params.id }).sort({ createdAt: -1 }),
+        BudgetItemModel.find({ tripId: req.params.id }).lean().select('-__v'),
+        BudgetHistoryModel.find({ tripId: req.params.id }).sort({ createdAt: -1 }).lean().select('-__v'),
       ]);
       res.json({ items, history, totalBudget: Number(trip.totalBudget) });
     } catch (error: any) {
@@ -542,6 +666,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isMember) {
         return res.status(403).json({ message: "Not a member of this trip" });
       }
+      
+      // Reverse the equal share allocation to all members
+      const members = await TripMemberModel.find({ tripId: trip._id });
+      const sharePerMember = Number(item.amount) / members.length;
+      
+      // Use bulk update instead of individual updates - much faster for large member counts
+      const updateMembersPromise = TripMemberModel.updateMany(
+        { tripId: trip._id },
+        {
+          $inc: { 
+            creditAmount: -sharePerMember,
+            balance: -sharePerMember
+          }
+        }
+      );
+      
       // Budget items are allocations within the total budget, don't modify total budget
       const historyPromise = BudgetHistoryModel.create({
         tripId: trip._id,
@@ -552,14 +692,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         category: item.category,
         description: item.description,
       });
-      const members = await TripMemberModel.find({ tripId: trip._id });
       const notificationPromises = members.map((member) =>
         NotificationModel.create({
           tripId: trip._id,
           userId: member.userId,
           type: 'budget_alert',
           title: 'Budget updated',
-          message: `${item.category}: ${Number(item.amount).toFixed(2)} removed`,
+          message: `${item.category}: ${Number(item.amount).toFixed(2)} removed (₹${sharePerMember.toFixed(2)} from you)`,
         })
       );
       if (!members.some((member) => member.userId.toString() === trip.organizerId.toString())) {
@@ -573,8 +712,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })
         );
       }
+      await Promise.all([updateMembersPromise, ...notificationPromises]);
       await historyPromise;
-      await Promise.all(notificationPromises);
+      broadcastTripUpdate(trip._id.toString(), { 
+        type: 'budget_updated', 
+        message: `Budget updated: ${item.category} removed`
+      });
       res.json({ message: "Budget item deleted successfully" });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -602,6 +745,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tripId: req.params.id,
         userId: req.session.userId,
       });
+      
+      // Update member balances using bulkWrite for better performance than individual updates
+      // This is faster than Promise.all with individual queries, especially for many participants
+      if (data.participantShares.length > 0) {
+        const bulkOps = data.participantShares.map((share) => ({
+          updateOne: {
+            filter: { tripId: req.params.id, userId: share.memberId },
+            update: {
+              $inc: { 
+                spentAmount: Number(share.amount),
+                balance: -Number(share.amount) // Decrease balance by the amount spent
+              }
+            }
+          }
+        }));
+        await TripMemberModel.bulkWrite(bulkOps);
+      }
+      
+      broadcastTripUpdate(req.params.id, { 
+        type: 'spending_updated', 
+        message: `Spending recorded: ${data.description} (₹${totalAmount})`
+      });
+      
       res.json(entry);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -612,7 +778,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const entries = await SpendingEntryModel.find({ tripId: req.params.id })
         .populate('userId', 'username userId')
-        .sort({ date: -1 });
+        .sort({ date: -1 })
+        .select('-__v')
+        .lean();  // Use lean() for better read performance
       res.json(entries);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -636,10 +804,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       let contextData = `User Information:\n- Username: ${user?.username}\n- User ID: ${user?.userId}\n\n`;
       
+      // Fetch all budget items and spending entries for all trips in parallel using bulk queries
+      const [allBudgetItems, allSpendingEntries] = await Promise.all([
+        BudgetItemModel.find({ tripId: { $in: tripIds } }).lean(),
+        SpendingEntryModel.find({ tripId: { $in: tripIds } }).lean(),
+      ]);
+      
+      // Create maps for fast lookup: tripId -> [items]
+      const budgetsByTrip = new Map<string, any[]>();
+      const spendingByTrip = new Map<string, any[]>();
+      
+      for (const budget of allBudgetItems) {
+        const tripId = budget.tripId.toString();
+        if (!budgetsByTrip.has(tripId)) budgetsByTrip.set(tripId, []);
+        budgetsByTrip.get(tripId)!.push(budget);
+      }
+      
+      for (const spending of allSpendingEntries) {
+        const tripId = spending.tripId.toString();
+        if (!spendingByTrip.has(tripId)) spendingByTrip.set(tripId, []);
+        spendingByTrip.get(tripId)!.push(spending);
+      }
+      
       contextData += `Trips:\n`;
       for (const trip of trips) {
-        const budgetItems = await BudgetItemModel.find({ tripId: trip._id });
-        const spendingEntries = await SpendingEntryModel.find({ tripId: trip._id });
+        const tripIdStr = trip._id.toString();
+        const budgetItems = budgetsByTrip.get(tripIdStr) || [];
+        const spendingEntries = spendingByTrip.get(tripIdStr) || [];
         const totalSpent = spendingEntries.reduce((sum, e) => sum + Number(e.amount), 0);
         const totalBudgeted = budgetItems.reduce((sum, i) => sum + Number(i.amount), 0);
         const remaining = Number(trip.totalBudget) - totalSpent;
@@ -746,7 +937,7 @@ You have access to the following user data:\n\n${contextData}\n\nProvide helpful
       const users = await UserModel.find(
         { userId: { $regex: q, $options: 'i' } },
         { username: 1, userId: 1, _id: 1 }
-      ).limit(10);
+      ).limit(10).lean();
 
       res.json(users);
     } catch (error: any) {
@@ -799,7 +990,9 @@ You have access to the following user data:\n\n${contextData}\n\nProvide helpful
     try {
       const notifications = await NotificationModel.find({ userId: req.session.userId })
         .sort({ createdAt: -1 })
-        .limit(50);
+        .limit(50)
+        .select('-__v')
+        .lean();
       res.json(notifications);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -820,9 +1013,133 @@ You have access to the following user data:\n\n${contextData}\n\nProvide helpful
     }
   });
 
-  // WebSocket setup
-  const wss = new WebSocketServer({ noServer: true });
-  const clients: Map<string, Set<WebSocket>> = new Map();
+  // Generate PDF for member balance summary
+  app.get("/api/trips/:id/members/pdf", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Verify user is member of trip
+      await assertMembership(id, req.session.userId, res);
+      
+      const trip = await TripModel.findById(id).lean();
+      if (!trip) {
+        return res.status(404).json({ message: "Trip not found" });
+      }
+
+      const members = await TripMemberModel.find({ tripId: id })
+        .populate('userId', 'username userId')
+        .lean();
+
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      let yPosition = margin;
+
+      // Add gradient background effect (light blue)
+      doc.setFillColor(230, 240, 255); // Light blue
+      doc.rect(0, 0, pageWidth, pageHeight, 'F');
+
+      // Title
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(20);
+      doc.setTextColor(20, 80, 150); // Dark blue
+      doc.text('Member Balance Summary', margin, yPosition);
+      yPosition += 15;
+
+      // Trip Info
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(50, 50, 50);
+      doc.text(`Trip: ${trip.name}`, margin, yPosition);
+      yPosition += 7;
+      doc.text(`Generated: ${new Date().toLocaleDateString()}`, margin, yPosition);
+      yPosition += 12;
+
+      // Table Header
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(255, 255, 255);
+      doc.setFillColor(30, 100, 200); // Blue background
+      
+      const colWidth = (pageWidth - 2 * margin) / 5;
+      doc.rect(margin, yPosition - 5, pageWidth - 2 * margin, 7, 'F');
+      
+      doc.text('Member', margin + 2, yPosition);
+      doc.text('Credit', margin + colWidth, yPosition);
+      doc.text('Spent', margin + 2 * colWidth, yPosition);
+      doc.text('Balance', margin + 3 * colWidth, yPosition);
+      doc.text('Role', margin + 4 * colWidth, yPosition);
+      
+      yPosition += 10;
+
+      // Table Data
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      
+      let totalCredit = 0;
+      let totalSpent = 0;
+      let totalBalance = 0;
+
+      members.forEach((member: any) => {
+        if (yPosition > pageHeight - 20) {
+          doc.addPage();
+          doc.setFillColor(230, 240, 255);
+          doc.rect(0, 0, pageWidth, pageHeight, 'F');
+          yPosition = margin;
+        }
+
+        const memberName = member.userId?.username || 'Unknown';
+        const credit = member.creditAmount || 0;
+        const spent = member.spentAmount || 0;
+        const balance = (credit - spent);
+
+        totalCredit += credit;
+        totalSpent += spent;
+        totalBalance += balance;
+
+        // Alternate row colors
+        if (members.indexOf(member) % 2 === 0) {
+          doc.setFillColor(240, 248, 255);
+          doc.rect(margin, yPosition - 3, pageWidth - 2 * margin, 6, 'F');
+        }
+
+        doc.text(memberName.substring(0, 15), margin + 2, yPosition);
+        doc.text(`₹${credit.toFixed(2)}`, margin + colWidth, yPosition);
+        doc.text(`₹${spent.toFixed(2)}`, margin + 2 * colWidth, yPosition);
+        
+        const balanceColor = balance > 0 ? [34, 197, 94] : balance < 0 ? [239, 68, 68] : [0, 0, 0];
+        doc.setTextColor(...balanceColor);
+        doc.text(`₹${balance.toFixed(2)}`, margin + 3 * colWidth, yPosition);
+        doc.setTextColor(0, 0, 0);
+        
+        doc.text(member.role || 'member', margin + 4 * colWidth, yPosition);
+        
+        yPosition += 7;
+      });
+
+      // Totals
+      yPosition += 5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFillColor(30, 100, 200);
+      doc.setTextColor(255, 255, 255);
+      doc.rect(margin, yPosition - 3, pageWidth - 2 * margin, 6, 'F');
+      
+      doc.text('TOTAL', margin + 2, yPosition);
+      doc.text(`₹${totalCredit.toFixed(2)}`, margin + colWidth, yPosition);
+      doc.text(`₹${totalSpent.toFixed(2)}`, margin + 2 * colWidth, yPosition);
+      doc.text(`₹${totalBalance.toFixed(2)}`, margin + 3 * colWidth, yPosition);
+
+      // Send PDF
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="member-balance-${trip.name}-${Date.now()}.pdf"`);
+      res.send(Buffer.from(doc.output('arraybuffer')));
+    } catch (error: any) {
+      console.error('PDF generation error:', error);
+      res.status(400).json({ message: error.message });
+    }
+  });
 
   app.get("/api/ws/:tripId", (req, res) => {
     const { tripId } = req.params;

@@ -8,10 +8,11 @@ import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, MapPin, Calendar, Users, IndianRupee, Trash2, Edit, LogOut, MessageSquare, Bell, Sun, Moon } from "lucide-react";
+import { Plus, MapPin, Calendar, Users, IndianRupee, Trash2, Edit, LogOut, MessageSquare, Bell, Sun, Moon, Play } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { MemberManager } from "@/components/member-manager";
+import { HeaderIcon, ProfessionalIcon } from "@/components/professional-icon";
 import {
   Dialog,
   DialogContent,
@@ -124,48 +125,38 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card">
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-background">
+      <header className="border-b bg-gradient-header-blue shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="font-serif text-3xl font-bold" data-testid="text-app-title">BKTravel Helper</h1>
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="icon"
+          <img src="/logo.png" alt="BKTravel Helper" className="h-12 w-auto" data-testid="text-app-title" />
+          <div className="flex items-center gap-2">
+            <HeaderIcon 
               onClick={toggleTheme}
               data-testid="button-toggle-theme"
             >
-              {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="icon"
+              {theme === "dark" ? <Sun /> : <Moon />}
+            </HeaderIcon>
+            <HeaderIcon 
               onClick={() => setNotificationsOpen(!notificationsOpen)}
+              count={unreadCount}
               data-testid="button-notifications"
-              className="relative"
             >
-              <Bell className="w-5 h-5" />
-              {unreadCount > 0 && (
-                <span className="absolute top-0 right-0 bg-destructive text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                  {unreadCount}
-                </span>
-              )}
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="icon"
+              <Bell />
+            </HeaderIcon>
+            <HeaderIcon 
               onClick={() => setChatOpen(!chatOpen)}
               data-testid="button-chatbot"
             >
-              <MessageSquare className="w-5 h-5" />
-            </Button>
+              <MessageSquare />
+            </HeaderIcon>
             <Button 
               variant="ghost" 
               onClick={handleLogout}
               data-testid="button-logout"
+              className="text-white hover:bg-white/20 transition-all duration-200 hover:shadow-md"
             >
               <LogOut className="w-4 h-4 mr-2" />
-              Logout
+              <span className="font-medium">Logout</span>
             </Button>
           </div>
         </div>
@@ -188,37 +179,38 @@ export default function Home() {
               <div className="mt-6 space-y-2">
                 <Button 
                   variant="ghost" 
-                  className="w-full justify-start"
+                  className="w-full justify-start hover:bg-blue-50 transition-colors duration-200"
                   onClick={() => navigate('/home')}
                   data-testid="button-my-trips"
                 >
-                  <MapPin className="w-4 h-4 mr-2" />
-                  My Trips
+                  <MapPin className="w-4 h-4 mr-3 text-blue-600" />
+                  <span className="font-medium">My Trips</span>
                 </Button>
                 <Button 
                   variant="ghost" 
-                  className="w-full justify-start"
+                  className="w-full justify-start hover:bg-purple-50 transition-colors duration-200"
                   onClick={() => setJoinDialogOpen(true)}
                   data-testid="button-join-trip"
                 >
-                  <Users className="w-4 h-4 mr-2" />
-                  Join Budget Split
+                  <Users className="w-4 h-4 mr-3 text-purple-600" />
+                  <span className="font-medium">Join Budget Split</span>
                 </Button>
               </div>
             </Card>
           </div>
 
           <div className="md:col-span-3">
-            <Card className="p-8 mb-6 bg-gradient-to-br from-primary/10 to-primary/5">
+            <Card className="p-8 mb-6 bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200 shadow-lg hover:shadow-xl transition-shadow duration-300">
               <div className="text-center">
-                <h2 className="text-2xl font-semibold mb-2">Create a New Trip</h2>
-                <p className="text-muted-foreground mb-6">Start planning your next adventure</p>
+                <h2 className="text-2xl font-semibold mb-2 text-blue-900">Create a New Trip</h2>
+                <p className="text-blue-700 mb-6 font-medium">Start planning your next adventure</p>
                 <Button 
                   size="lg" 
                   onClick={() => navigate('/create-trip')}
                   data-testid="button-create-trip"
+                  className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg hover:shadow-xl transition-all duration-300"
                 >
-                  <Plus className="w-5 h-5 mr-2" />
+                  <Plus className="w-5 h-5 mr-2 font-bold" />
                   Create Trip
                 </Button>
               </div>
@@ -410,50 +402,99 @@ export default function Home() {
 }
 
 function TripCard({ trip, onDelete, navigate, isOrganizer }: any) {
+  const { toast } = useToast();
+  
+  const startTripMutation = useMutation({
+    mutationFn: () =>
+      apiRequest(`/api/trips/${trip._id}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'current' }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/trips'] });
+      toast({ 
+        title: "Trip Started! 🎉", 
+        description: "Trip is now active. All members have been notified." 
+      });
+      // Auto-navigate to dashboard after successful trip start
+      navigate(`/trip/${trip._id}/dashboard`);
+    },
+    onError: () => {
+      toast({ 
+        title: "Failed to start trip", 
+        description: "Please try again",
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const handleStartTrip = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    startTripMutation.mutate();
+  };
+
   return (
     <Card 
-      className="overflow-hidden hover-elevate cursor-pointer"
+      className="overflow-hidden hover:shadow-xl transition-all duration-300 cursor-pointer border-l-4 border-l-blue-500 hover:border-l-blue-600"
       data-testid={`card-trip-${trip._id}`}
       onClick={() => navigate(`/trip/${trip._id}/dashboard`)}
     >
       <div 
-        className="h-32 bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center"
+        className="h-28 bg-gradient-to-br from-blue-500/10 to-cyan-500/10 flex items-center justify-center relative overflow-hidden"
       >
-        <MapPin className="w-12 h-12 text-primary" />
+        <div className="absolute inset-0 opacity-10 bg-gradient-to-br from-blue-500 to-cyan-500" />
+        <ProfessionalIcon size="lg" background bgColor="primary">
+          <MapPin className="w-6 h-6" />
+        </ProfessionalIcon>
       </div>
-      <div className="p-4">
-        <div className="flex items-start justify-between mb-2">
-          <h3 className="text-lg font-semibold" data-testid="text-trip-name">{trip.name}</h3>
-          <Badge variant={trip.status === 'current' ? 'default' : 'secondary'}>{trip.status}</Badge>
+      <div className="p-5">
+        <div className="flex items-start justify-between mb-3">
+          <h3 className="text-lg font-bold text-gray-800" data-testid="text-trip-name">{trip.name}</h3>
+          <Badge variant={trip.status === 'current' ? 'default' : 'secondary'} className="text-xs font-semibold">
+            {trip.status === 'current' ? '🔴 Live' : '⏰ Upcoming'}
+          </Badge>
         </div>
-        <div className="space-y-2 text-sm text-muted-foreground mb-4">
-          <div className="flex items-center gap-2">
-            <MapPin className="w-4 h-4" />
-            <span>{trip.location}</span>
+        <div className="space-y-2 text-sm text-gray-600 mb-4">
+          <div className="flex items-center gap-3">
+            <MapPin className="w-4 h-4 text-blue-600 flex-shrink-0" />
+            <span className="font-medium">{trip.location}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4" />
-            <span>{new Date(trip.startDate).toLocaleDateString()}</span>
+          <div className="flex items-center gap-3">
+            <Calendar className="w-4 h-4 text-green-600 flex-shrink-0" />
+            <span className="font-medium">{new Date(trip.startDate).toLocaleDateString()}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Users className="w-4 h-4" />
-            <span>{trip.numberOfMembers} members</span>
+          <div className="flex items-center gap-3">
+            <Users className="w-4 h-4 text-purple-600 flex-shrink-0" />
+            <span className="font-medium">{trip.numberOfMembers} members</span>
           </div>
-          <div className="flex items-center gap-2">
-            <IndianRupee className="w-4 h-4" />
-            <span>₹{trip.totalBudget}</span>
+          <div className="flex items-center gap-3">
+            <IndianRupee className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span className="font-bold text-lg">₹{trip.totalBudget}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="font-mono uppercase tracking-wide">
-              {trip.joinCode}
+          <div className="mt-2 pt-2 border-t border-gray-200">
+            <Badge variant="secondary" className="font-mono uppercase tracking-widest text-xs font-bold bg-gray-100 text-gray-700">
+              🔐 {trip.joinCode}
             </Badge>
           </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap pt-2">
+          {isOrganizer && trip.status === 'upcoming' && (
+            <Button 
+              size="sm" 
+              className="flex-1 bg-green-500 hover:bg-green-600 text-white shadow-md hover:shadow-lg transition-all"
+              onClick={handleStartTrip}
+              disabled={startTripMutation.isPending}
+              data-testid="button-start-trip"
+            >
+              <Play className="w-4 h-4 mr-1" />
+              <span className="font-medium">
+                {startTripMutation.isPending ? 'Starting...' : 'Start Trip'}
+              </span>
+            </Button>
+          )}
           <Button 
             size="sm" 
-            variant="outline" 
-            className="flex-1"
+            className="flex-1 bg-blue-500 hover:bg-blue-600 text-white shadow-md hover:shadow-lg transition-all"
             onClick={(e) => {
               e.stopPropagation();
               navigate(`/trip/${trip._id}/location`);
@@ -461,11 +502,11 @@ function TripCard({ trip, onDelete, navigate, isOrganizer }: any) {
             data-testid="button-view-trip"
           >
             <MapPin className="w-4 h-4 mr-1" />
-            View
+            <span className="font-medium">View</span>
           </Button>
           <Button 
             size="sm" 
-            variant="outline"
+            className="flex-1 bg-green-500 hover:bg-green-600 text-white shadow-md hover:shadow-lg transition-all"
             onClick={(e) => {
               e.stopPropagation();
               navigate(`/trip/${trip._id}/spending`);
@@ -473,13 +514,13 @@ function TripCard({ trip, onDelete, navigate, isOrganizer }: any) {
             data-testid="button-spending"
           >
             <IndianRupee className="w-4 h-4 mr-1" />
-            Spending
+            <span className="font-medium">Budget</span>
           </Button>
           {isOrganizer && (
             <>
               <Button 
                 size="sm" 
-                variant="outline"
+                className="flex-1 bg-purple-500 hover:bg-purple-600 text-white shadow-md hover:shadow-lg transition-all"
                 onClick={(e) => {
                   e.stopPropagation();
                   navigate(`/trip/${trip._id}/edit`);
@@ -487,7 +528,7 @@ function TripCard({ trip, onDelete, navigate, isOrganizer }: any) {
                 data-testid="button-edit-trip"
               >
                 <Edit className="w-4 h-4 mr-1" />
-                Edit
+                <span className="font-medium">Edit</span>
               </Button>
               <div onClick={(e) => e.stopPropagation()}>
                 <MemberManager tripId={trip._id} isOrganizer={isOrganizer} />
@@ -496,7 +537,8 @@ function TripCard({ trip, onDelete, navigate, isOrganizer }: any) {
           )}
           <Button 
             size="sm" 
-            variant="outline"
+            variant="destructive"
+            className="shadow-md hover:shadow-lg transition-all"
             onClick={(e) => {
               e.stopPropagation();
               onDelete(trip._id);

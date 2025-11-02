@@ -19,6 +19,9 @@ import {
   BarChart3,
   Calendar,
   Gauge,
+  Play,
+  CheckCircle,
+  Clock,
 } from "lucide-react";
 
 export default function TripDashboard() {
@@ -62,7 +65,7 @@ export default function TripDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [roleMenu, setRoleMenu] = useState<string | null>(null);
-  const client = useQueryClient();
+  const queryClient = useQueryClient();
 
   // Get current user's role
   const currentUserRole = members.find((member: any) => member.userId?._id === user?.id)?.role || "member";
@@ -74,10 +77,10 @@ export default function TripDashboard() {
         body: JSON.stringify({ role }),
       }),
     onMutate: async ({ memberId, role }) => {
-      await client.cancelQueries({ queryKey: ['/api/trips', id, 'members'] });
-      const previousMembers = client.getQueryData<any[]>(['/api/trips', id, 'members']);
+      await queryClient.cancelQueries({ queryKey: ['/api/trips', id, 'members'] });
+      const previousMembers = queryClient.getQueryData<any[]>(['/api/trips', id, 'members']);
       if (previousMembers) {
-        client.setQueryData(
+        queryClient.setQueryData(
           ['/api/trips', id, 'members'],
           previousMembers.map(member =>
             member._id === memberId ? { ...member, role } : member
@@ -86,23 +89,42 @@ export default function TripDashboard() {
       }
       return { previousMembers };
     },
-    onError: (_error, _variables, context) => {
-      if (context?.previousMembers) {
-        client.setQueryData(['/api/trips', id, 'members'], context.previousMembers);
-      }
+    onError: (_error, _variables, _context) => {
+      // Don't revert optimistic update since the change may have succeeded on server
       toast({ title: "Failed to update member role", variant: "destructive" });
     },
     onSuccess: () => {
       toast({ title: "Member role updated successfully" });
     },
     onSettled: () => {
-      client.invalidateQueries({ queryKey: ['/api/trips', id, 'members'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/trips', id, 'members'] });
       setRoleMenu(null);
     },
   });
 
   const handleRoleChange = (memberId: string, newRole: string) => {
     updateRoleMutation.mutate({ memberId, role: newRole });
+  };
+
+  const startTripMutation = useMutation({
+    mutationFn: (newStatus: string) =>
+      apiRequest(`/api/trips/${id}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: newStatus }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/trips', id] });
+      toast({ title: `Trip status updated!`, description: "All members have been notified." });
+    },
+    onError: () => {
+      toast({ title: "Failed to start trip", variant: "destructive" });
+    },
+  });
+
+  const handleStartTrip = () => {
+    if (currentUserRole === 'organizer' || currentUserRole === 'co_organizer') {
+      startTripMutation.mutate('current');
+    }
   };
 
   const totals = useMemo(() => {
@@ -172,6 +194,22 @@ export default function TripDashboard() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            {(currentUserRole === 'organizer' || currentUserRole === 'co_organizer') && trip?.status === 'upcoming' && (
+              <Button 
+                onClick={handleStartTrip}
+                disabled={startTripMutation.isPending}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                {startTripMutation.isPending ? 'Starting...' : 'Start Trip'}
+              </Button>
+            )}
+            {trip?.status === 'current' && (
+              <Button disabled className="bg-blue-600 text-white">
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Trip in Progress
+              </Button>
+            )}
             <Button variant="outline" onClick={() => navigate(`/trip/${id}/location`)}>
               <Map className="w-4 h-4 mr-2" />
               Locations
@@ -193,6 +231,52 @@ export default function TripDashboard() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
+        {trip?.status === 'current' && (currentUserRole === 'organizer' || currentUserRole === 'co_organizer') && (
+          <Card className="p-5 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 shadow-sm">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex-shrink-0">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-green-900">Trip is now Active! 🎉</h3>
+                  <p className="text-sm text-green-700 mt-1">You have full access to manage spending, routes, and all trip details in real-time.</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-4">
+              <button 
+                onClick={() => navigate(`/trip/${id}/spending`)}
+                className="p-3 bg-white rounded-lg border border-green-200 hover:border-green-400 hover:bg-green-50 transition-all text-left"
+              >
+                <Wallet className="w-5 h-5 text-green-600 mb-2" />
+                <p className="text-sm font-semibold text-gray-800">Add Spending</p>
+              </button>
+              <button 
+                onClick={() => navigate(`/trip/${id}/location`)}
+                className="p-3 bg-white rounded-lg border border-green-200 hover:border-green-400 hover:bg-green-50 transition-all text-left"
+              >
+                <RouteIcon className="w-5 h-5 text-blue-600 mb-2" />
+                <p className="text-sm font-semibold text-gray-800">Manage Routes</p>
+              </button>
+              <button 
+                onClick={() => navigate(`/trip/${id}/budget`)}
+                className="p-3 bg-white rounded-lg border border-green-200 hover:border-green-400 hover:bg-green-50 transition-all text-left"
+              >
+                <IndianRupee className="w-5 h-5 text-amber-600 mb-2" />
+                <p className="text-sm font-semibold text-gray-800">Budget</p>
+              </button>
+              <button 
+                onClick={() => navigate(`/trip/${id}/members`)}
+                className="p-3 bg-white rounded-lg border border-green-200 hover:border-green-400 hover:bg-green-50 transition-all text-left"
+              >
+                <Users className="w-5 h-5 text-purple-600 mb-2" />
+                <p className="text-sm font-semibold text-gray-800">Members</p>
+              </button>
+            </div>
+          </Card>
+        )}
+
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             icon={<IndianRupee className="w-5 h-5" />}

@@ -43,13 +43,8 @@ export default function Register() {
 
   return (
     <div className="min-h-screen grid md:grid-cols-2">
-      <div 
-        className="hidden md:block"
-        style={{
-          backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)), url('https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=1920&q=80')`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
+      <div
+        className="hidden md:block gradient-black-white"
       />
       
       <div className="flex items-center justify-center p-8 bg-background">

@@ -46,11 +46,16 @@ const tripMemberSchema = new mongoose.Schema({
   tripId: { type: mongoose.Schema.Types.ObjectId, ref: 'Trip', required: true, index: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   role: { type: String, enum: ['organizer', 'co_organizer', 'member'], default: 'member' },
+  creditAmount: { type: Number, default: 0 }, // Total credit allocated to this member
+  spentAmount: { type: Number, default: 0 }, // Total amount spent by this member
+  balance: { type: Number, default: 0 }, // Current balance (creditAmount - spentAmount)
   joinedAt: { type: Date, default: Date.now },
 });
 
 // Compound index for efficient membership queries
 tripMemberSchema.index({ tripId: 1, userId: 1 }, { unique: true });
+// Index for finding all trips for a user
+tripMemberSchema.index({ userId: 1, createdAt: -1 });
 
 const tripStopSchema = new mongoose.Schema({
   tripId: { type: mongoose.Schema.Types.ObjectId, ref: 'Trip', required: true, index: true },
@@ -69,6 +74,9 @@ const tripStopSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+// Compound index for efficient trip stop queries with sorting
+tripStopSchema.index({ tripId: 1, type: 1, orderIndex: 1 });
+
 const budgetItemSchema = new mongoose.Schema({
   tripId: { type: mongoose.Schema.Types.ObjectId, ref: 'Trip', required: true, index: true },
   category: { type: String, required: true },
@@ -78,7 +86,7 @@ const budgetItemSchema = new mongoose.Schema({
 });
 
 const budgetHistorySchema = new mongoose.Schema({
-  tripId: { type: mongoose.Schema.Types.ObjectId, ref: 'Trip', required: true },
+  tripId: { type: mongoose.Schema.Types.ObjectId, ref: 'Trip', required: true, index: true },
   itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'BudgetItem', required: true },
   type: { type: String, enum: ['add', 'remove'], required: true },
   amount: { type: Number, required: true },
@@ -87,6 +95,9 @@ const budgetHistorySchema = new mongoose.Schema({
   description: { type: String },
   createdAt: { type: Date, default: Date.now },
 });
+
+// Compound index for efficient budget history queries with sorting
+budgetHistorySchema.index({ tripId: 1, createdAt: -1 });
 
 const spendingEntrySchema = new mongoose.Schema({
   tripId: { type: mongoose.Schema.Types.ObjectId, ref: 'Trip', required: true, index: true },
@@ -102,6 +113,9 @@ const spendingEntrySchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+// Compound index for efficient trip spending queries
+spendingEntrySchema.index({ tripId: 1, createdAt: -1 });
+
 const notificationSchema = new mongoose.Schema({
   tripId: { type: mongoose.Schema.Types.ObjectId, ref: 'Trip', required: true, index: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
@@ -111,6 +125,9 @@ const notificationSchema = new mongoose.Schema({
   read: { type: Boolean, default: false, index: true },
   createdAt: { type: Date, default: Date.now },
 });
+
+// Compound index for efficient user notification queries
+notificationSchema.index({ userId: 1, read: 1, createdAt: -1 });
 
 export const UserModel = mongoose.model('User', userSchema);
 export const TripModel = mongoose.model('Trip', tripSchema);

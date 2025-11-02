@@ -17,6 +17,7 @@ import jsPDF from "jspdf";
 import { apiRequest } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import {
   ArrowLeft,
   Plus,
@@ -29,6 +30,7 @@ import {
   Map,
   ImagePlus,
   Download,
+  Lock,
 } from "lucide-react";
 
 const typeLabels: Record<string, string> = {
@@ -47,6 +49,7 @@ export default function TripLocation() {
   const { id } = useParams();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const [stopName, setStopName] = useState("");
   const [stopTime, setStopTime] = useState("");
@@ -80,6 +83,10 @@ export default function TripLocation() {
     queryKey: ["/api/trips", id, "members"],
     queryFn: () => apiRequest(`/api/trips/${id}/members`),
   });
+
+  // Check if current user is organizer/co-organizer
+  const userMember = members.find((m: any) => m.userId?._id === user?.id);
+  const canEdit = userMember?.role === 'organizer' || userMember?.role === 'co_organizer';
 
   useEffect(() => {
     if (trip?.description) {
@@ -383,11 +390,18 @@ export default function TripLocation() {
               <h2 className="text-xl font-semibold mb-4">
                 {editingStopId ? "Edit Location" : "Add Trip Location"}
               </h2>
+              {!canEdit && (
+                <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800">
+                  <Lock className="w-4 h-4" />
+                  <span className="text-sm">Only organizers and co-organizers can add or edit locations</span>
+                </div>
+              )}
               <form onSubmit={handleAddOrUpdateStop} className="space-y-4">
                 <div>
                   <Label htmlFor="stopType">Location Type *</Label>
                   <Select value={pinType} onValueChange={(value) => setPinType(value as "start" | "stop" | "destination")}
                     required
+                    disabled={!canEdit}
                   >
                     <SelectTrigger data-testid="select-location-type">
                       <SelectValue placeholder="Select type" />
@@ -408,6 +422,7 @@ export default function TripLocation() {
                     onChange={(e) => setStopName(e.target.value)}
                     placeholder="e.g., City Center"
                     required
+                    disabled={!canEdit}
                     data-testid="input-stop-name"
                   />
                 </div>
@@ -429,6 +444,7 @@ export default function TripLocation() {
                       variant="outline"
                       onClick={handleImageButtonClick}
                       className="flex items-center gap-2"
+                      disabled={!canEdit}
                     >
                       <ImagePlus className="w-4 h-4" />
                       {stopImage ? "Change Image" : "Upload Image"}
@@ -439,6 +455,7 @@ export default function TripLocation() {
                         variant="ghost"
                         onClick={() => handleImageChange(null)}
                         className="text-destructive"
+                        disabled={!canEdit}
                       >
                         Remove
                       </Button>
@@ -463,13 +480,14 @@ export default function TripLocation() {
                     value={stopTime}
                     onChange={(e) => setStopTime(e.target.value)}
                     required
+                    disabled={!canEdit}
                     data-testid="input-stop-time"
                   />
                 </div>
 
                 <div>
                   <Label htmlFor="travelMethod">Travel Method</Label>
-                  <Select value={travelMethod} onValueChange={setTravelMethod}>
+                  <Select value={travelMethod} onValueChange={setTravelMethod} disabled={!canEdit}>
                     <SelectTrigger data-testid="select-travel-method">
                       <SelectValue placeholder="Select method" />
                     </SelectTrigger>
@@ -486,7 +504,7 @@ export default function TripLocation() {
 
                 <div>
                   <Label htmlFor="accommodation">Accommodation Type</Label>
-                  <Select value={accommodation} onValueChange={setAccommodation}>
+                  <Select value={accommodation} onValueChange={setAccommodation} disabled={!canEdit}>
                     <SelectTrigger data-testid="select-accommodation">
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
@@ -508,6 +526,7 @@ export default function TripLocation() {
                       value={accommodationDetails}
                       onChange={(e) => setAccommodationDetails(e.target.value)}
                       placeholder="Name, address, or booking info"
+                      disabled={!canEdit}
                       data-testid="input-accommodation-details"
                     />
                   </div>
@@ -517,6 +536,7 @@ export default function TripLocation() {
                   <Button
                     type="submit"
                     className="flex-1"
+                    disabled={!canEdit}
                     data-testid="button-add-stop"
                   >
                     <Plus className="w-4 h-4 mr-2" />
@@ -601,7 +621,7 @@ export default function TripLocation() {
                 </div>
                 <Button
                   onClick={handleShareGPS}
-                  disabled={gpsLoading}
+                  disabled={gpsLoading || !canEdit}
                   className="w-full"
                   variant="outline"
                   data-testid="button-share-gps"
@@ -655,6 +675,7 @@ export default function TripLocation() {
                           variant="ghost"
                           size="icon"
                           onClick={() => handleEditStop(stop)}
+                          disabled={!canEdit}
                           data-testid="button-edit-stop"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -663,6 +684,7 @@ export default function TripLocation() {
                           variant="ghost"
                           size="icon"
                           onClick={() => deleteStopMutation.mutate(stop._id)}
+                          disabled={!canEdit}
                           data-testid="button-delete-stop"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -730,14 +752,15 @@ export default function TripLocation() {
                     value={tripDescription}
                     onChange={(e) => setTripDescription(e.target.value)}
                     placeholder="Add a detailed description of your trip, including key activities, must-see places, and any special notes..."
-                    className="w-full min-h-[120px] px-3 py-2 border border-input bg-background rounded-md resize-vertical"
+                    disabled={!canEdit}
+                    className="w-full min-h-[120px] px-3 py-2 border border-input bg-background rounded-md resize-vertical disabled:opacity-50 disabled:cursor-not-allowed"
                     rows={4}
                   />
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <Button
                     onClick={handleUpdateDescription}
-                    disabled={updateTripDescriptionMutation.isPending}
+                    disabled={!canEdit || updateTripDescriptionMutation.isPending}
                     className="flex-1 sm:flex-none"
                   >
                     {updateTripDescriptionMutation.isPending ? "Saving..." : "Save Description"}

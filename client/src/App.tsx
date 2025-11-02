@@ -4,6 +4,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
+import { useEffect, useState } from "react";
+import { apiRequest } from "@/lib/api";
 import Splash from "@/pages/splash";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
@@ -25,6 +27,51 @@ function ProtectedRoute({ component: Component }: { component: () => JSX.Element
   }
   
   return <Component />;
+}
+
+function AuthValidator() {
+  const { user, setUser, clearUser } = useAuth();
+  const [isValidating, setIsValidating] = useState(true);
+
+  useEffect(() => {
+    // Validate session on app load
+    const validateSession = async () => {
+      try {
+        const response = await apiRequest('/api/auth/me');
+        const serverUser = response.user;
+
+        if (serverUser) {
+          // Session is valid on server
+          if (!user || user.id !== serverUser.id) {
+            // Update local user if different
+            setUser(serverUser);
+          }
+        } else {
+          // No valid session on server
+          if (user) {
+            // Clear stale local user
+            clearUser();
+          }
+        }
+      } catch (error) {
+        // If validation fails, clear user to be safe
+        if (user) {
+          clearUser();
+        }
+      } finally {
+        setIsValidating(false);
+      }
+    };
+
+    validateSession();
+  }, []);
+
+  // Don't render routes until validation is complete
+  if (isValidating) {
+    return <div className="min-h-screen bg-background flex items-center justify-center">Loading...</div>;
+  }
+
+  return null;
 }
 
 function Router() {
@@ -62,13 +109,20 @@ function Router() {
   );
 }
 
+function AppContent() {
+  return (
+    <TooltipProvider>
+      <Toaster />
+      <AuthValidator />
+      <Router />
+    </TooltipProvider>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <AppContent />
     </QueryClientProvider>
   );
 }

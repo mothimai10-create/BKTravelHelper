@@ -10,13 +10,15 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, IndianRupee, Download, Calendar } from "lucide-react";
+import { useAuth } from "@/lib/auth";
+import { ArrowLeft, Plus, IndianRupee, Download, Calendar, Lock } from "lucide-react";
 import jsPDF from "jspdf";
 
 export default function TripSpending() {
   const { id } = useParams();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -37,6 +39,10 @@ export default function TripSpending() {
     queryKey: ['/api/trips', id, 'members'],
     queryFn: () => apiRequest(`/api/trips/${id}/members`),
   });
+
+  // Check if current user is organizer/co-organizer
+  const userMember = members.find((m: any) => m.userId?._id === user?.id);
+  const canEdit = userMember?.role === 'organizer' || userMember?.role === 'co_organizer';
 
   const addSpendingMutation = useMutation({
     mutationFn: (data: any) => apiRequest(`/api/trips/${id}/spending`, {
@@ -146,6 +152,12 @@ export default function TripSpending() {
           <div className="md:col-span-2">
             <Card className="p-6 mb-6">
               <h2 className="text-xl font-semibold mb-4">Add Spending Entry</h2>
+              {!canEdit && (
+                <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800">
+                  <Lock className="w-4 h-4" />
+                  <span className="text-sm">Only organizers and co-organizers can add spending entries</span>
+                </div>
+              )}
               <form onSubmit={handleAddSpending} className="space-y-4">
                 <div>
                   <Label htmlFor="description">Description *</Label>
@@ -155,6 +167,7 @@ export default function TripSpending() {
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="e.g., Lunch at restaurant"
                     required
+                    disabled={!canEdit}
                     data-testid="input-description"
                   />
                 </div>
@@ -171,6 +184,7 @@ export default function TripSpending() {
                       onChange={(e) => setAmount(e.target.value)}
                       placeholder="0.00"
                       required
+                      disabled={!canEdit}
                       data-testid="input-amount"
                     />
                   </div>
@@ -183,6 +197,7 @@ export default function TripSpending() {
                       value={date}
                       onChange={(e) => setDate(e.target.value)}
                       required
+                      disabled={!canEdit}
                       data-testid="input-date"
                     />
                   </div>
@@ -190,7 +205,7 @@ export default function TripSpending() {
 
                 <div>
                   <Label htmlFor="splitType">Split Type *</Label>
-                  <Select value={splitType} onValueChange={(value: "equal" | "custom") => setSplitType(value)}>
+                  <Select value={splitType} onValueChange={(value: "equal" | "custom") => setSplitType(value)} disabled={!canEdit}>
                     <SelectTrigger data-testid="select-split-type">
                       <SelectValue placeholder="Select split type" />
                     </SelectTrigger>
@@ -216,6 +231,7 @@ export default function TripSpending() {
                               setSelectedParticipants(selectedParticipants.filter(id => id !== member.userId._id));
                             }
                           }}
+                          disabled={!canEdit}
                           data-testid={`checkbox-participant-${member.userId._id}`}
                         />
                         <Label htmlFor={`participant-${member.userId._id}`}>
@@ -226,9 +242,9 @@ export default function TripSpending() {
                   </div>
                 </div>
 
-                <Button type="submit" className="w-full" data-testid="button-add-spending">
+                <Button type="submit" className="w-full" disabled={!canEdit || addSpendingMutation.isPending} data-testid="button-add-spending">
                   <Plus className="w-4 h-4 mr-2" />
-                  Add Spending Entry
+                  {addSpendingMutation.isPending ? 'Adding...' : 'Add Spending Entry'}
                 </Button>
               </form>
             </Card>

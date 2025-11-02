@@ -16,7 +16,8 @@ import jsPDF from "jspdf";
 import { apiRequest } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, Trash2, IndianRupee, Download } from "lucide-react";
+import { useAuth } from "@/lib/auth";
+import { ArrowLeft, Plus, Trash2, IndianRupee, Download, Lock } from "lucide-react";
 
 const BUDGET_CATEGORIES = [
   "Accommodation",
@@ -32,6 +33,7 @@ export default function TripBudget() {
   const { id } = useParams();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -45,6 +47,15 @@ export default function TripBudget() {
     queryKey: ['/api/trips', id, 'budget'],
     queryFn: () => apiRequest(`/api/trips/${id}/budget`),
   });
+
+  const { data: members = [] } = useQuery({
+    queryKey: ['/api/trips', id, 'members'],
+    queryFn: () => apiRequest(`/api/trips/${id}/members`),
+  });
+
+  // Check if current user is organizer/co-organizer
+  const userMember = members.find((m: any) => m.userId?._id === user?.id);
+  const canEdit = userMember?.role === 'organizer' || userMember?.role === 'co_organizer';
 
   const budgetItems = budgetData?.items ?? [];
   const budgetHistory = budgetData?.history ?? [];
@@ -169,6 +180,12 @@ export default function TripBudget() {
           <div className="md:col-span-2">
             <Card className="p-6 mb-6">
               <h2 className="text-xl font-semibold mb-4">Add Budget Item</h2>
+              {!canEdit && (
+                <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800">
+                  <Lock className="w-4 h-4" />
+                  <span className="text-sm">Only organizers and co-organizers can add budget items</span>
+                </div>
+              )}
               <form onSubmit={handleAddItem} className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <Card className="p-4">
@@ -190,7 +207,7 @@ export default function TripBudget() {
                 </div>
                 <div>
                   <Label htmlFor="category">Category *</Label>
-                  <Select value={category} onValueChange={setCategory} required>
+                  <Select value={category} onValueChange={setCategory} required disabled={!canEdit}>
                     <SelectTrigger data-testid="select-category">
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
@@ -210,6 +227,7 @@ export default function TripBudget() {
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="e.g., Hotel booking for 3 nights"
                     required
+                    disabled={!canEdit}
                     data-testid="input-description"
                   />
                 </div>
@@ -225,13 +243,14 @@ export default function TripBudget() {
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="0.00"
                     required
+                    disabled={!canEdit}
                     data-testid="input-amount"
                   />
                 </div>
 
-                <Button type="submit" className="w-full" data-testid="button-add-item">
+                <Button type="submit" className="w-full" disabled={!canEdit || addBudgetMutation.isPending} data-testid="button-add-item">
                   <Plus className="w-4 h-4 mr-2" />
-                  Add Budget Item
+                  {addBudgetMutation.isPending ? 'Adding...' : 'Add Budget Item'}
                 </Button>
               </form>
             </Card>
@@ -264,6 +283,7 @@ export default function TripBudget() {
                             variant="ghost" 
                             size="icon"
                             onClick={() => deleteBudgetMutation.mutate(item._id)}
+                            disabled={!canEdit}
                             data-testid="button-delete-item"
                           >
                             <Trash2 className="w-4 h-4" />
