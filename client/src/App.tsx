@@ -14,6 +14,7 @@ import TripLocation from "@/pages/trip-location";
 import TripBudget from "@/pages/trip-budget";
 import TripSpending from "@/pages/trip-spending";
 import TripDashboard from "@/pages/trip-dashboard";
+import TripMembers from "@/pages/trip-members";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: () => JSX.Element | null }) {
@@ -52,6 +53,9 @@ function Router() {
       </Route>
       <Route path="/trip/:id/spending">
         {() => <ProtectedRoute component={TripSpending} />}
+      </Route>
+      <Route path="/trip/:id/members">
+        {() => <ProtectedRoute component={TripMembers} />}
       </Route>
       <Route component={NotFound} />
     </Switch>

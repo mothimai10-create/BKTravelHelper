@@ -11,6 +11,7 @@ import { ArrowLeft } from "lucide-react";
 export default function CreateTrip() {
   const [, navigate] = useLocation();
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -28,6 +29,7 @@ export default function CreateTrip() {
         method: 'POST',
         body: JSON.stringify({
           name,
+          description: description || undefined,
           location,
           startDate: new Date(startDate),
           endDate: endDate ? new Date(endDate) : null,
@@ -86,6 +88,19 @@ export default function CreateTrip() {
                 placeholder="e.g., Summer Beach Vacation"
                 required
                 data-testid="input-trip-name"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="description">Trip Description</Label>
+              <textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Optional: Describe your trip itinerary, highlights, and any special notes..."
+                className="w-full min-h-[80px] px-3 py-2 border border-input bg-background rounded-md resize-vertical"
+                rows={3}
+                data-testid="input-trip-description"
               />
             </div>
 

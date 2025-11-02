@@ -114,7 +114,7 @@ export default function Home() {
     navigate('/');
   };
 
-  const upcomingTrips = trips.filter((t: any) => t.status === 'upcoming');
+  const upcomingTrips = trips.filter((t: any) => t.status === 'upcoming' && t.organizerId?._id === user?.id);
   const currentTrips = trips.filter((t: any) => t.status === 'current');
   const pastTrips = trips.filter((t: any) => t.status === 'past');
 

@@ -449,16 +449,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!trip) {
         return res.status(404).json({ message: "Trip not found" });
       }
+
+      const isMember = await TripMemberModel.findOne({ tripId: trip._id, userId: req.session.userId });
+      if (!isMember) {
+        return res.status(403).json({ message: "Not a member of this trip" });
+      }
       const item = await BudgetItemModel.create({ ...data, tripId: trip._id });
-      const amountValue = Number(item.amount);
-      trip.totalBudget = Number(trip.totalBudget) + amountValue;
-      await trip.save();
+      // Budget items are allocations within the total budget, don't modify total budget
       const historyPromise = BudgetHistoryModel.create({
         tripId: trip._id,
         itemId: item._id,
         type: 'add',
-        amount: amountValue,
-        totalAfter: Number(trip.totalBudget),
+        amount: item.amount,
+        totalAfter: Number(trip.totalBudget), // Total budget remains unchanged
         category: item.category,
         description: item.description,
       });
@@ -493,14 +496,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/trips/:id/budget", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const [trip, items, history] = await Promise.all([
-        TripModel.findById(req.params.id),
-        BudgetItemModel.find({ tripId: req.params.id }),
-        BudgetHistoryModel.find({ tripId: req.params.id }).sort({ createdAt: -1 }),
-      ]);
+      const trip = await TripModel.findById(req.params.id);
       if (!trip) {
         return res.status(404).json({ message: "Trip not found" });
       }
+
+      const isMember = await TripMemberModel.findOne({ tripId: trip._id, userId: req.session.userId });
+      if (!isMember) {
+        return res.status(403).json({ message: "Not a member of this trip" });
+      }
+
+      const [items, history] = await Promise.all([
+        BudgetItemModel.find({ tripId: req.params.id }),
+        BudgetHistoryModel.find({ tripId: req.params.id }).sort({ createdAt: -1 }),
+      ]);
       res.json({ items, history, totalBudget: Number(trip.totalBudget) });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -517,16 +526,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!trip) {
         return res.status(404).json({ message: "Trip not found" });
       }
-      const amountValue = Number(item.amount);
-      const updatedTotal = Math.max(0, Number(trip.totalBudget) - amountValue);
-      trip.totalBudget = updatedTotal;
-      await trip.save();
+
+      const isMember = await TripMemberModel.findOne({ tripId: trip._id, userId: req.session.userId });
+      if (!isMember) {
+        return res.status(403).json({ message: "Not a member of this trip" });
+      }
+      // Budget items are allocations within the total budget, don't modify total budget
       const historyPromise = BudgetHistoryModel.create({
         tripId: trip._id,
         itemId: item._id,
         type: 'remove',
-        amount: amountValue,
-        totalAfter: updatedTotal,
+        amount: item.amount,
+        totalAfter: Number(trip.totalBudget), // Total budget remains unchanged
         category: item.category,
         description: item.description,
       });

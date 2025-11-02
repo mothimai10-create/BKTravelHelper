@@ -16,6 +16,7 @@ export default function EditTrip() {
   const { toast } = useToast();
   
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -31,6 +32,7 @@ export default function EditTrip() {
   useEffect(() => {
     if (trip) {
       setName(trip.name);
+      setDescription(trip.description || "");
       setLocation(trip.location);
       setStartDate(trip.startDate?.split('T')[0] || "");
       setEndDate(trip.endDate?.split('T')[0] || "");
@@ -45,6 +47,7 @@ export default function EditTrip() {
         method: 'PUT',
         body: JSON.stringify({
           name,
+          description: description || undefined,
           location,
           startDate: new Date(startDate),
           endDate: endDate ? new Date(endDate) : null,
@@ -133,6 +136,19 @@ export default function EditTrip() {
                 placeholder="e.g., Summer Beach Vacation"
                 required
                 data-testid="input-trip-name"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="description">Trip Description</Label>
+              <textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Optional: Describe your trip itinerary, highlights, and any special notes..."
+                className="w-full min-h-[80px] px-3 py-2 border border-input bg-background rounded-md resize-vertical"
+                rows={3}
+                data-testid="input-trip-description"
               />
             </div>
 

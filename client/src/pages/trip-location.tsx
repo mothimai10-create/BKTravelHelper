@@ -11,8 +11,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useLocation, useParams } from "wouter";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import jsPDF from "jspdf";
 import { apiRequest } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -27,6 +28,7 @@ import {
   Clock,
   Map,
   ImagePlus,
+  Download,
 } from "lucide-react";
 
 const typeLabels: Record<string, string> = {
@@ -55,6 +57,7 @@ export default function TripLocation() {
   const [editingStopId, setEditingStopId] = useState<string | null>(null);
   const [pinType, setPinType] = useState<"start" | "stop" | "destination">("stop");
   const [gpsLoading, setGpsLoading] = useState(false);
+  const [tripDescription, setTripDescription] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const { data: trip } = useQuery({
@@ -77,6 +80,12 @@ export default function TripLocation() {
     queryKey: ["/api/trips", id, "members"],
     queryFn: () => apiRequest(`/api/trips/${id}/members`),
   });
+
+  useEffect(() => {
+    if (trip?.description) {
+      setTripDescription(trip.description);
+    }
+  }, [trip?.description]);
 
   const addStopMutation = useMutation({
     mutationFn: (data: any) =>
@@ -131,6 +140,29 @@ export default function TripLocation() {
     },
     onError: (error: any) => {
       toast({ title: "Failed to share location", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateTripDescriptionMutation = useMutation({
+    mutationFn: (description: string) =>
+      apiRequest(`/api/trips/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: trip?.name,
+          description,
+          startDate: trip?.startDate,
+          endDate: trip?.endDate,
+          location: trip?.location,
+          numberOfMembers: trip?.numberOfMembers,
+          totalBudget: trip?.totalBudget,
+        }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips", id] });
+      toast({ title: "Trip description updated successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to update description", description: error.message, variant: "destructive" });
     },
   });
 
@@ -224,6 +256,84 @@ export default function TripLocation() {
       });
       setGpsLoading(false);
     }
+  };
+
+  const handleUpdateDescription = () => {
+    updateTripDescriptionMutation.mutate(tripDescription);
+  };
+
+  const handleDownloadPDF = () => {
+    if (!trip || stops.length === 0) return;
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    let yPosition = 20;
+
+    // Title
+    doc.setFontSize(20);
+    doc.text(trip.name, pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 15;
+
+    // Location and dates
+    doc.setFontSize(12);
+    doc.text(`Location: ${trip.location}`, 20, yPosition);
+    yPosition += 10;
+    const startDate = new Date(trip.startDate).toLocaleDateString();
+    const endDate = trip.endDate ? new Date(trip.endDate).toLocaleDateString() : 'Ongoing';
+    doc.text(`Dates: ${startDate} - ${endDate}`, 20, yPosition);
+    yPosition += 10;
+
+    // Description
+    if (tripDescription) {
+      doc.text('Description:', 20, yPosition);
+      yPosition += 10;
+      const splitDescription = doc.splitTextToSize(tripDescription, pageWidth - 40);
+      doc.text(splitDescription, 20, yPosition);
+      yPosition += splitDescription.length * 5 + 10;
+    }
+
+    // Route Overview
+    doc.setFontSize(16);
+    doc.text('Trip Route Overview', 20, yPosition);
+    yPosition += 15;
+
+    // Stops
+    itineraryStops.forEach((stop: any, index: number) => {
+      if (yPosition > pageHeight - 40) {
+        doc.addPage();
+        yPosition = 20;
+      }
+
+      doc.setFontSize(14);
+      const typeLabel = typeLabels[stop.type as string] || 'Stop';
+      doc.text(`${index + 1}. ${typeLabel}: ${stop.name}`, 20, yPosition);
+      yPosition += 10;
+
+      doc.setFontSize(10);
+      if (stop.time) {
+        doc.text(`Time: ${stop.time}`, 30, yPosition);
+        yPosition += 8;
+      }
+      if (stop.travelMethod) {
+        doc.text(`Travel: ${stop.travelMethod}`, 30, yPosition);
+        yPosition += 8;
+      }
+      if (stop.accommodation && stop.accommodation !== 'none') {
+        doc.text(`Accommodation: ${stop.accommodation}${stop.accommodationDetails ? ` - ${stop.accommodationDetails}` : ''}`, 30, yPosition);
+        yPosition += 8;
+      }
+
+      yPosition += 5; // Extra space between stops
+    });
+
+    // Footer
+    doc.setFontSize(8);
+    doc.text(`Generated on ${new Date().toLocaleDateString()}`, 20, pageHeight - 10);
+
+    // Download
+    doc.save(`${trip.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_itinerary.pdf`);
+    toast({ title: "PDF downloaded successfully" });
   };
 
   const itineraryStops = stops as Array<any>;
@@ -607,6 +717,45 @@ export default function TripLocation() {
             )}
           </div>
         </div>
+
+        {stops.length > 0 && (
+          <div className="max-w-7xl mx-auto px-4 py-8">
+            <Card className="p-6">
+              <h2 className="text-xl font-semibold mb-4">Trip Description</h2>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="tripDescription">Describe your trip itinerary and highlights</Label>
+                  <textarea
+                    id="tripDescription"
+                    value={tripDescription}
+                    onChange={(e) => setTripDescription(e.target.value)}
+                    placeholder="Add a detailed description of your trip, including key activities, must-see places, and any special notes..."
+                    className="w-full min-h-[120px] px-3 py-2 border border-input bg-background rounded-md resize-vertical"
+                    rows={4}
+                  />
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    onClick={handleUpdateDescription}
+                    disabled={updateTripDescriptionMutation.isPending}
+                    className="flex-1 sm:flex-none"
+                  >
+                    {updateTripDescriptionMutation.isPending ? "Saving..." : "Save Description"}
+                  </Button>
+                  <Button
+                    onClick={handleDownloadPDF}
+                    variant="outline"
+                    className="flex-1 sm:flex-none"
+                    disabled={stops.length === 0}
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download PDF
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   );

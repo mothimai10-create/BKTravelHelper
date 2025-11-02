@@ -40,13 +40,7 @@ export default defineConfig({
         },
       },
     },
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true,
-      },
-    },
+    minify: 'esbuild',
     sourcemap: false,
     chunkSizeWarningLimit: 1000,
   },
@@ -55,4 +49,16 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
-    hmr: 
+    hmr: {
+      overlay: false,
+    },
+  },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      '@tanstack/react-query',
+      'wouter',
+    ],
+  },
+});

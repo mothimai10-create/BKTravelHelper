@@ -2,6 +2,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useLocation, useParams } from "wouter";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -18,6 +20,8 @@ export default function TripSpending() {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [splitType, setSplitType] = useState<"equal" | "custom">("equal");
+  const [selectedParticipants, setSelectedParticipants] = useState<string[]>([]);
 
   const { data: trip } = useQuery({
     queryKey: ['/api/trips', id],
@@ -44,16 +48,35 @@ export default function TripSpending() {
       setDescription("");
       setAmount("");
       setDate(new Date().toISOString().split('T')[0]);
+      setSelectedParticipants([]);
       toast({ title: "Spending entry added successfully" });
     },
   });
 
   const handleAddSpending = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (selectedParticipants.length === 0) {
+      toast({ title: "Please select at least one participant", variant: "destructive" });
+      return;
+    }
+
+    const participantShares = selectedParticipants.map(memberId => {
+      const shareAmount = splitType === "equal"
+        ? parseFloat(amount) / selectedParticipants.length
+        : parseFloat(amount) / selectedParticipants.length; // For now, equal split for both
+      return {
+        memberId,
+        amount: shareAmount,
+      };
+    });
+
     addSpendingMutation.mutate({
       description,
       amount: parseFloat(amount),
       date: new Date(date),
+      splitType,
+      participantShares,
     });
   };
 
@@ -162,6 +185,44 @@ export default function TripSpending() {
                       required
                       data-testid="input-date"
                     />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="splitType">Split Type *</Label>
+                  <Select value={splitType} onValueChange={(value: "equal" | "custom") => setSplitType(value)}>
+                    <SelectTrigger data-testid="select-split-type">
+                      <SelectValue placeholder="Select split type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="equal">Equal Split</SelectItem>
+                      <SelectItem value="custom">Custom Split</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Participants *</Label>
+                  <div className="space-y-2 mt-2">
+                    {members.map((member: any) => (
+                      <div key={member.userId._id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`participant-${member.userId._id}`}
+                          checked={selectedParticipants.includes(member.userId._id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedParticipants([...selectedParticipants, member.userId._id]);
+                            } else {
+                              setSelectedParticipants(selectedParticipants.filter(id => id !== member.userId._id));
+                            }
+                          }}
+                          data-testid={`checkbox-participant-${member.userId._id}`}
+                        />
+                        <Label htmlFor={`participant-${member.userId._id}`}>
+                          {member.userId.username} ({member.role})
+                        </Label>
+                      </div>
+                    ))}
                   </div>
                 </div>
 

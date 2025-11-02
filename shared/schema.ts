@@ -15,6 +15,7 @@ export const loginUserSchema = z.object({
 // Trip Schemas
 export const insertTripSchema = z.object({
   name: z.string().min(1, "Trip name is required"),
+  description: z.string().optional(),
   startDate: z.coerce.date(),
   endDate: z.coerce.date().optional(),
   location: z.string().min(1, "Location is required"),

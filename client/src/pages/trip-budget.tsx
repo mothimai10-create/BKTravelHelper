@@ -11,12 +11,12 @@ import {
 } from "@/components/ui/select";
 import { useLocation, useParams } from "wouter";
 import { useState } from "react";
-import jsPDF from "jspdf";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import jsPDF from "jspdf";
 import { apiRequest } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, Trash2, IndianRupee } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, IndianRupee, Download } from "lucide-react";
 
 const BUDGET_CATEGORIES = [
   "Accommodation",
@@ -75,6 +75,8 @@ export default function TripBudget() {
       toast({ title: "Budget item deleted successfully" });
     },
   });
+
+
 
   const handleAddItem = (e: React.FormEvent) => {
     e.preventDefault();

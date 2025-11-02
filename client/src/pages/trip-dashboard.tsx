@@ -4,8 +4,11 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLocation, useParams } from "wouter";
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueries, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import {
   ArrowLeft,
   Map,
@@ -50,11 +53,38 @@ export default function TripDashboard() {
   const [tripQuery, stopsQuery, budgetQuery, spendingQuery, membersQuery] = queries;
   const trip = tripQuery.data;
   const stops = stopsQuery.data || [];
-  const budgetItems = budgetQuery.data || [];
+  const budgetItems = budgetQuery.data?.items || [];
   const spendingEntries = spendingQuery.data || [];
   const members = membersQuery.data || [];
 
   const loading = queries.some(query => query.isLoading);
+
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [roleMenu, setRoleMenu] = useState<string | null>(null);
+
+  // Get current user's role
+  const currentUserRole = members.find((member: any) => member.userId?._id === user?.id)?.role || "member";
+
+  const updateRoleMutation = useMutation({
+    mutationFn: ({ memberId, role }: { memberId: string; role: string }) =>
+      apiRequest(`/api/trips/${id}/members/${memberId}/role`, {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/trips', id, 'members'] });
+      setRoleMenu(null);
+      toast({ title: "Member role updated successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update member role", variant: "destructive" });
+    },
+  });
+
+  const handleRoleChange = (memberId: string, newRole: string) => {
+    updateRoleMutation.mutate({ memberId, role: newRole });
+  };
 
   const totals = useMemo(() => {
     const totalBudget = Number(trip?.totalBudget || 0);
@@ -134,6 +164,10 @@ export default function TripDashboard() {
             <Button variant="outline" onClick={() => navigate(`/trip/${id}/spending`)}>
               <Wallet className="w-4 h-4 mr-2" />
               Spending
+            </Button>
+            <Button variant="outline" onClick={() => navigate(`/trip/${id}/members`)}>
+              <Users className="w-4 h-4 mr-2" />
+              Members
             </Button>
           </div>
         </div>

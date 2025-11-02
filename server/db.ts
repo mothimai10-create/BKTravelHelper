@@ -25,6 +25,7 @@ const userSchema = new mongoose.Schema({
 
 const tripSchema = new mongoose.Schema({
   name: { type: String, required: true },
+  description: { type: String },
   organizerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   coOrganizerIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   startDate: { type: Date, required: true },
