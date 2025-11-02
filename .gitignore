@@ -1,0 +1,13 @@
+node_modules
+dist
+.DS_Store
+server/public
+vite.config.ts.*
+*.tar.gz
+IMPLEMENTATION_STATUS.md
+FEATURES.md
+QUICK_START.md
+.replit
+.env
+.enc.example
+.local

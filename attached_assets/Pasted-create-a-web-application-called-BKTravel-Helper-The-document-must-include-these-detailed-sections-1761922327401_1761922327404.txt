@@ -1,0 +1,123 @@
+create a web application called 'BKTravel Helper'. The document must include these detailed sections and requirements:
+
+1. Introduction
+Purpose: To provide users a platform for planning, managing, and sharing travel trips with live updates and budget management.
+
+Target users: Registered travelers planning trips with friends or groups.
+
+Platform: Responsive web app designed for desktop and mobile browsers.
+
+2. Overall Description
+Modular design with frontend, backend, and database.
+
+Use MongoDB as the database for all user, trip, budget, and spending data.
+
+Environment variables via an .env file for all sensitive data (DB connection, keys).
+
+Attractive, compact, and user-friendly interface optimized for mobile and web.
+
+3. Functional Requirements
+3.1 Splash Page
+Simple landing page introducing BKTravel Helper with branding.
+
+3.2 Registration and Login
+Registration with username, user ID, password fields.
+
+Login using user ID and password.
+
+All credentials validated with MongoDB
+
+3.3 Home Page
+Left section: User profile info.
+
+Top left of profile: Navigation links for 'My Trips', 'My Budgets', 'Join Budget Split' (join via code).
+
+Center: Button to 'Create Trip'.
+
+Right bottom corner: Chatbot interface (NLP only, no frontend UI) querying DB for trip, budget, and user info.
+
+3.4 Create Trip Page
+Form inputs: Trip Name, Date, Number of Members, Total Budget.
+
+Budget split feature to generate join code allowing members to join or manual user ID addition by organizer.
+
+Manual input for trip location.
+
+On submission, save trip info and transition to Location page; mark the trip under 'My Trips'.
+
+3.5 Location Page
+Display an interactive OpenStreetMap map with GPS auto-detection fallback.
+
+Users can add trip stops, travel methods, accommodation details (hotel/resort), and other info.
+
+Updates reflected in 'My Trips'.
+
+Include a button to navigate to Budget page.
+
+3.6 Budget Page
+Interface to add all budget items (A-Z).
+
+Save and link budget details to the trip.
+
+Redirect to Home page after saving budget.
+
+3.7 Trips Management on Home
+Show current, past, upcoming trips under 'My Trips'.
+
+Allow update and deletion of current trips.
+
+'Spending' button to navigate to Spending page.
+
+3.8 Spending Page
+Add spending entries with descriptions.
+
+Adjust budget balance accordingly.
+
+Split spending equally among group members.
+
+Option to download spending summary as PDF with dates, summary, and member balances.
+
+3.9 Live Trip Updates
+Notify trip members when trip starts.
+
+Provide live GPS-based location updates or manual location status updates.
+
+Users receive popup notifications for arrivals and next stops with ETA.
+
+3.10 Chatbot
+Pure NLP-based query engine with no UI; responds using database info.
+
+Supports queries like remaining budget, user profile data, budget split status, next trip location, etc.
+
+4. Non-Functional Requirements
+Security: Password hashing, secure environment variable handling, encrypted communication.
+
+Performance: Fast load times, seamless user experience on mobile/desktop.
+
+Usability: Compact, attractive UI with intuitive flows.
+
+Maintainability: Modular codebase with clear frontend/backend separation.
+
+Scalability: Should handle multiple users and trips efficiently.
+
+5. Technical Requirements
+Frontend: Use React or equivalent modern framework with responsive CSS.
+
+Backend: Node.js/Express or similar framework.
+
+Database: MongoDB with connection info pulled from .env file.
+
+Mapping: OpenStreetMap integration with GPS support. or any map support with free tier with more acduray
+
+PDF Generation: Implement PDF export for spending summaries.
+
+Notifications: Real-time user notifications for trip updates.
+
+6. Deliverables
+Complete SRS document including use case diagrams, data flow diagrams, entity-relationship diagrams for DB schema.
+
+UI wireframe descriptions detailing page layouts and navigation.
+
+Detailed API and backend module descriptions.
+
+Mongo db connection string:mongodb+srv://mothimai10_db_user:mothimai10@cluster0.cxor751.mongodb.net/?appName=Cluster0
