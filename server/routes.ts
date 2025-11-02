@@ -2,11 +2,12 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import express from "express";
 import session from "express-session";
-import MemoryStore from "memorystore";
+import MongoStore from "connect-mongo";
 import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
 import { WebSocket, WebSocketServer } from "ws";
 import { connectDB, UserModel, TripModel, TripMemberModel, TripStopModel, BudgetItemModel, BudgetHistoryModel, SpendingEntryModel, NotificationModel } from "./db";
+import mongoose from "mongoose";
 import { insertUserSchema, loginUserSchema, insertTripSchema, insertTripStopSchema, insertBudgetItemSchema, insertSpendingEntrySchema } from "@shared/schema";
 import OpenAI from "openai";
 import jsPDF from "jspdf";
@@ -110,8 +111,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     broadcastTripUpdate(tripId, { type, title, message });
   }
 
-  const sessionStore = new (MemoryStore as any)({
-    checkPeriod: 86400000, // Prune expired entries every 24h
+  const sessionStore = new MongoStore({
+    client: mongoose.connection.getClient() as any,
+    touchAfter: 24 * 3600,
   });
 
   app.use(session({
@@ -124,7 +126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000
     },
-    name: 'bktravel.sid' // Custom session ID name to avoid conflicts
+    name: 'bktravel.sid'
   }));
 
   app.post("/api/auth/register", async (req: AuthRequest, res) => {
@@ -1019,7 +1021,7 @@ You have access to the following user data:\n\n${contextData}\n\nProvide helpful
       const { id } = req.params;
       
       // Verify user is member of trip
-      await assertMembership(id, req.session.userId, res);
+      await assertMembership(id, req.session.userId!, res);
       
       const trip = await TripModel.findById(id).lean();
       if (!trip) {
@@ -1109,7 +1111,7 @@ You have access to the following user data:\n\n${contextData}\n\nProvide helpful
         doc.text(`₹${credit.toFixed(2)}`, margin + colWidth, yPosition);
         doc.text(`₹${spent.toFixed(2)}`, margin + 2 * colWidth, yPosition);
         
-        const balanceColor = balance > 0 ? [34, 197, 94] : balance < 0 ? [239, 68, 68] : [0, 0, 0];
+        const balanceColor: [number, number, number] = balance > 0 ? [34, 197, 94] : balance < 0 ? [239, 68, 68] : [0, 0, 0];
         doc.setTextColor(...balanceColor);
         doc.text(`₹${balance.toFixed(2)}`, margin + 3 * colWidth, yPosition);
         doc.setTextColor(0, 0, 0);
