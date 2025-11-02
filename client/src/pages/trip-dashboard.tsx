@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLocation, useParams } from "wouter";
 import { useState } from "react";
-import { useQuery, useQueries, useMutation } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -62,6 +62,7 @@ export default function TripDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [roleMenu, setRoleMenu] = useState<string | null>(null);
+  const client = useQueryClient();
 
   // Get current user's role
   const currentUserRole = members.find((member: any) => member.userId?._id === user?.id)?.role || "member";
@@ -72,13 +73,31 @@ export default function TripDashboard() {
         method: 'PUT',
         body: JSON.stringify({ role }),
       }),
+    onMutate: async ({ memberId, role }) => {
+      await client.cancelQueries({ queryKey: ['/api/trips', id, 'members'] });
+      const previousMembers = client.getQueryData<any[]>(['/api/trips', id, 'members']);
+      if (previousMembers) {
+        client.setQueryData(
+          ['/api/trips', id, 'members'],
+          previousMembers.map(member =>
+            member._id === memberId ? { ...member, role } : member
+          )
+        );
+      }
+      return { previousMembers };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousMembers) {
+        client.setQueryData(['/api/trips', id, 'members'], context.previousMembers);
+      }
+      toast({ title: "Failed to update member role", variant: "destructive" });
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/trips', id, 'members'] });
-      setRoleMenu(null);
       toast({ title: "Member role updated successfully" });
     },
-    onError: () => {
-      toast({ title: "Failed to update member role", variant: "destructive" });
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: ['/api/trips', id, 'members'] });
+      setRoleMenu(null);
     },
   });
 

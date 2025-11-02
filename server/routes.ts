@@ -75,6 +75,17 @@ async function assertOrganizer(tripId: string, userId: string, res: express.Resp
   return member;
 }
 
+function broadcastTripUpdate(tripId: string, message: any) {
+  const tripClients = clients.get(tripId);
+  if (tripClients) {
+    tripClients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(message));
+      }
+    });
+  }
+}
+
 async function notifyMembers(tripId: string, type: string, title: string, message: string) {
   const members = await TripMemberModel.find({ tripId });
   const notifications = members.map((member) =>
@@ -486,7 +497,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })
         );
       }
-      notificationPromises.push(historyPromise);
+      await historyPromise;
       await Promise.all(notificationPromises);
       res.json(item);
     } catch (error: any) {
@@ -562,7 +573,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })
         );
       }
-      notificationPromises.push(historyPromise);
+      await historyPromise;
       await Promise.all(notificationPromises);
       res.json({ message: "Budget item deleted successfully" });
     } catch (error: any) {
@@ -834,17 +845,6 @@ You have access to the following user data:\n\n${contextData}\n\nProvide helpful
       console.error('WebSocket error:', err);
     });
   });
-
-  function broadcastTripUpdate(tripId: string, message: any) {
-    const tripClients = clients.get(tripId);
-    if (tripClients) {
-      tripClients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(message));
-        }
-      });
-    }
-  }
 
   // ===== END NEW FEATURES =====
 
